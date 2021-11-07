@@ -48,8 +48,8 @@ defmodule IntentionCli do
 
     case args do
         %{args: %{}} -> Optimus.parse!(optimus, ["--help"])
-      {[:login], _} -> auth(settings)
-      {[:list], _} -> list_intentions(settings)
+      {[:login], args} -> auth(settings, args)
+      {[:list], args} -> list_intentions(settings, args)
       other -> IO.inspect(other)
     end
   end
@@ -72,7 +72,7 @@ defmodule IntentionCli do
     end
   end
 
-  def auth(settings) do
+  def auth(settings, args) do
     %{user_code: user_code, device_code: device_code, verification_uri_complete: uri} = request_device_code()
     IO.puts(IO.ANSI.format(["Go to: ", :bright, uri]))
     IO.puts(IO.ANSI.format(["User code is ", :orange, :bright, user_code]))
@@ -88,11 +88,15 @@ defmodule IntentionCli do
     IO.puts("Login complete")
   end
 
-  def list_intentions(settings) do
+  def list_intentions(settings, args) do
     case settings do
       %{token: token} -> 
         intentions = request_intentions(token)
-        view = intentions_view(intentions |> Enum.filter(fn i -> i.status == "todo" end))
+        to_show = case args.flags.all do
+                    true -> intentions
+                    false -> intentions |> Enum.filter(fn i -> i.status == "todo" end)
+                  end
+        view = intentions_view(to_show)
 
         view
         |> IO.ANSI.format()
@@ -171,7 +175,7 @@ defmodule IntentionCli do
       indent = String.duplicate(" ", indentation)
       children = intentions_view(intentions, i.id, indentation + 1)
       |> Enum.map(fn s -> [indent, Enum.fetch!(level_colours, indentation), "| ", s] end)
-      label = [:reset, :bright, i.title, :faint, " (id ", to_string(i.id), ")"]
+      label = [:reset, (if i.status == "todo", do: :bright, else: :crossed_out), i.title, :reset, :faint, " (id ", to_string(i.id), ")"]
       [ label, children ]
       |> Enum.filter(fn s -> not(is_nil(s)) end)
       |> Enum.intersperse(["\n"])
