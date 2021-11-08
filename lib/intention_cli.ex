@@ -37,7 +37,24 @@ defmodule IntentionCli do
               long: "--all",
               help: "Show all intentions, including completed."
             ]
+          ],
+          args: [
+            view: [
+              value_name: "view",
+              help: "View to display",
+              parser: fn(s) ->
+                case Integer.parse(s) do
+                  {:error, _} -> {:error, "invalid view id - should be an integer"}
+                  {i, _} -> {:ok, i}
+                end
+              end,
+              required: false
+            ]
           ]
+        ],
+        views: [
+          name: "views",
+          about: "List all views"
         ]
       ]
     )
@@ -47,9 +64,10 @@ defmodule IntentionCli do
     settings = load_settings()
 
     case args do
-        %{args: %{}} -> Optimus.parse!(optimus, ["--help"])
+      %{args: %{}} -> Optimus.parse!(optimus, ["--help"])
       {[:login], args} -> auth(settings, args)
       {[:list], args} -> list_intentions(settings, args)
+      {[:views], args} -> list_views(settings, args)
       other -> IO.inspect(other)
     end
   end
@@ -90,15 +108,44 @@ defmodule IntentionCli do
 
   def list_intentions(settings, args) do
     case settings do
-      %{token: token} -> 
+      %{token: token} ->
+        view_root_id = case args do
+                         %{args: %{view: view_id}} when not(is_nil(view_id)) ->
+                           view = request_views(token)
+                           |> Enum.find(fn v -> v.id == view_id end)
+
+                           case view do
+                             nil ->
+                               IO.puts(IO.ANSI.format([:yellow, :bright, "WARN: ", :reset, "View ", :bright, Kernel.inspect(view_id), :reset, " not found."]))
+                               nil
+                             v ->
+                               view
+                               |> Map.fetch!(:"root-node")
+                               |> Map.fetch!(:id)
+                           end
+                         _ -> nil
+                       end
         intentions = request_intentions(token)
         to_show = case args.flags.all do
                     true -> intentions
                     false -> intentions |> Enum.filter(fn i -> i.status == "todo" end)
                   end
-        view = intentions_view(to_show)
+        view = intentions_view(to_show, view_root_id)
 
         view
+        |> IO.ANSI.format()
+        |> IO.puts()
+      _ -> IO.puts(IO.ANSI.format(["Run ", :bright, '"intention login"', :reset, " first."]))
+    end
+  end
+
+  def list_views(settings, args) do
+    case settings do
+      %{token: token} -> 
+        views = request_views(token)
+
+        views
+        |> Enum.map(fn v -> [:faint, "- ", :reset, :bright, v.title, :reset, " | ", :faint, Kernel.inspect(v.id), "\n"] end)
         |> IO.ANSI.format()
         |> IO.puts()
       _ -> IO.puts(IO.ANSI.format(["Run ", :bright, '"intention login"', :reset, " first."]))
@@ -157,7 +204,15 @@ defmodule IntentionCli do
     |> parse_json_body()
   end
 
-  def intentions_view(intentions, parent \\ nil, indentation \\ 1) do
+  def request_views(token) do
+    HTTPoison.get!(
+      "https://intention-api.herokuapp.com/views",
+      %{Authorization: "Bearer #{token}"}
+    )
+    |> parse_json_body()
+  end
+
+  def intentions_view(intentions, root_node_id \\ nil, parent \\ nil, indentation \\ 1) do
     level_colours = Stream.cycle([
       :blue, :cyan, :green, :red, :yellow
     ])
@@ -166,14 +221,15 @@ defmodule IntentionCli do
     |> Enum.filter(fn i ->
       parents = i[:parents]
        cond do
-        is_nil(parents) && is_nil(parent) -> true
+        is_nil(root_node_id) && is_nil(parents) && is_nil(parent) -> true
+        not(is_nil(root_node_id)) && is_nil(parent) && i.id == root_node_id -> true
         Enum.any?(parents || [], fn p -> p.id == parent end) -> true
         true -> false
       end
     end)
     |> Enum.map(fn i ->
       indent = String.duplicate(" ", indentation)
-      children = intentions_view(intentions, i.id, indentation + 1)
+      children = intentions_view(intentions, root_node_id, i.id, indentation + 1)
       |> Enum.map(fn s -> [indent, Enum.fetch!(level_colours, indentation), "| ", s] end)
       label = [:reset, (if i.status == "todo", do: :bright, else: :crossed_out), i.title, :reset, :faint, " (id ", to_string(i.id), ")"]
       [ label, children ]
