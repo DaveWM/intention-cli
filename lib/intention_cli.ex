@@ -1,4 +1,6 @@
 defmodule IntentionCli do
+  require OK
+  use OK.Pipe
 
   @moduledoc """
   Documentation for `IntentionCli`.
@@ -65,97 +67,132 @@ defmodule IntentionCli do
 
     case args do
       %{args: %{}} -> Optimus.parse!(optimus, ["--help"])
-      {[:login], args} -> auth(settings, args)
-      {[:list], args} -> list_intentions(settings, args)
-      {[:views], args} -> list_views(settings, args)
+      {[:login], args} -> settings |> with_default(%{}) |> auth(args)
+      {[:list], args} -> settings ~>> token_required() ~> list_intentions(args) |> handle_errors()
+      {[:views], args} -> settings ~>> token_required() ~> list_views(args) |> handle_errors()
       other -> IO.inspect(other)
     end
   end
 
-  def load_settings() do
-    case "~/.intention/config.json" |> Path.expand() |> File.read() do
-      {:error, _} -> %{}
-      {:ok, content} -> Jason.decode!(content, %{keys: :atoms})
+  def handle_errors(result) do
+    case result do
+      {:error, :unauthorized} ->
+        [:bright, :red, "ERROR: ", :reset, "auth token expired, please refresh using ", :bright, "intention login"]
+        |> IO.ANSI.format()
+        |> IO.puts()
+      {:error, err} ->
+        [:bright, :red, "ERROR: ", :reset, "an error occurred - ", :bright, (Kernel.inspect err)]
+        |> print_ansi()
+      {:ok, _} -> nil
+
     end
+  end
+
+  def token_required(settings) do
+    case settings do
+      %{token: t} = ok when not(is_nil(t)) -> return ok
+      _ ->
+        print_ansi(["Run ", :bright, '"intention login"', :reset, " first."])
+        {:error, :missing_token}
+    end
+  end
+
+  def load_settings() do
+    "~/.intention/config.json"
+    |> Path.expand()
+    |> File.read()
+    ~>> Jason.decode(%{keys: :atoms})
   end
 
   def save_settings(new_settings) do
     path = "~/.intention/config.json" |> Path.expand()
     File.mkdir_p!(Path.dirname(path))
-    case File.write(path, Jason.encode!(new_settings)) do
-      {:error, reason} ->
-        IO.puts(IO.ANSI.format([:bright, :red, "ERROR:", :reset, " Failed to save settings, reason: ", Kernel.inspect(reason)]))
-        :error
-      :ok -> :ok
+    OK.try do
+      json <- Jason.encode(new_settings)
+      write_result = File.write(path, json)
+    after
+      case write_result do
+        :ok -> {:ok, nil}
+        err -> err
+      end
+    rescue
+      reason ->
+        print_ansi([:bright, :red, "ERROR:", :reset, " Failed to save settings, reason: ", Kernel.inspect(reason)])
+        reason
     end
   end
 
-  def auth(settings, args) do
-    %{user_code: user_code, device_code: device_code, verification_uri_complete: uri} = request_device_code()
-    IO.puts(IO.ANSI.format(["Go to: ", :bright, uri]))
-    IO.puts(IO.ANSI.format(["User code is ", :blue, :bright, user_code]))
-
-    token = CliSpinners.spin_fun(
-      [frames: :dots,
-       text: "Waiting for token...",
-       done: "Got token"],
-      fn -> poll_token(device_code) end
-    )
-
-    save_settings(Map.put(settings, :token, token))
-    IO.puts("Login complete")
+  def return(x) do
+    {:ok, x}
   end
 
-  def list_intentions(settings, args) do
-    case settings do
-      %{token: token} ->
-        case request_intentions(token) do
-          {:ok, intentions} ->
-            view_root_id = case args do
-                             %{args: %{view: view_id}} when not(is_nil(view_id)) ->
-                               {:ok, views} = request_views(token)
-                               view = views |> Enum.find(fn v -> v.id == view_id end)
+  def with_default(x, default) do
+    case x do
+      {:ok, ok} -> ok
+      {:error, _} -> default
+    end
+  end
 
-                               case view do
-                                 nil ->
-                                   IO.puts(IO.ANSI.format([:yellow, :bright, "WARN: ", :reset, "View ", :bright, Kernel.inspect(view_id), :reset, " not found."]))
-                                   nil
-                                 v ->
-                                   view
-                                   |> Map.fetch!(:"root-node")
-                                   |> Map.fetch!(:id)
-                               end
-                             _ -> nil
-                           end
-            to_show = case args.flags.all do
-                        true -> intentions
-                        false -> intentions |> Enum.filter(fn i -> i.status == "todo" end)
-                      end
-            view = intentions_view(to_show, view_root_id)
+  def print_ansi(to_print) do
+    to_print |> IO.ANSI.format() |> IO.puts()
+  end
 
-            view
-            |> IO.ANSI.format()
-            |> IO.puts()
-          {:unauthorized, _} -> unauthorized_error()
-          _ -> IO.puts("Oops, something went wrong")
-        end
-      _ -> IO.puts(IO.ANSI.format(["Run ", :bright, '"intention login"', :reset, " first."]))
+  def auth(settings, args) do
+    OK.for do
+      %{user_code: user_code, device_code: device_code, verification_uri_complete: uri} <- request_device_code()
+
+      print_ansi(["Go to: ", :bright, uri])
+      print_ansi(["User code is ", :blue, :bright, user_code])
+
+      token <- CliSpinners.spin_fun(
+        [frames: :dots,
+         text: "Waiting for token...",
+         done: "Got token"],
+        fn -> poll_token(device_code) end
+      )
+
+      save_settings(Map.put(settings, :token, token))
+    after
+      IO.puts("Login complete")
+    end
+  end
+
+  def list_intentions(%{token: token}, args) do
+    OK.for do
+      intentions <- request_intentions(token)
+      view_root_id = case args do
+                       %{args: %{view: view_id}} when not(is_nil(view_id)) ->
+                         view = request_views(token) ~> Enum.find(fn v -> v.id == view_id end)
+
+                         case view do
+                           {:ok, nil} ->
+                             IO.puts(IO.ANSI.format([:yellow, :bright, "WARN: ", :reset, "View ", :bright, Kernel.inspect(view_id), :reset, " not found."]))
+                             nil
+                           {:ok, v} ->
+                             v
+                             |> Map.fetch!(:"root-node")
+                             |> Map.fetch!(:id)
+                           _ -> nil
+                         end
+                       _ -> nil
+                     end
+      to_show = case args.flags.all do
+                  true -> intentions
+                  false -> intentions |> Enum.filter(fn i -> i.status == "todo" end)
+                end
+      view = intentions_view(to_show, view_root_id)
+    after
+      print_ansi(view)
     end
   end
 
   def list_views(settings, args) do
-    case settings do
-      %{token: token} -> 
-        case request_views(token) do
-          {:ok, views} -> 
-            views
-            |> Enum.map(fn v -> [:faint, "- ", :reset, :bright, v.title, :reset, " | ", :faint, Kernel.inspect(v.id), "\n"] end)
-            |> IO.ANSI.format()
-            |> IO.puts()
-          {:unauthorized, _} -> unauthorized_error()
-          _ -> IO.puts("oops")
-        end
-      _ -> IO.puts(IO.ANSI.format(["Run ", :bright, '"intention login"', :reset, " first."]))
+    OK.for do
+      views <- request_views(settings.token)
+    after
+      request_views(settings.token)
+      ~> Enum.map(fn v -> [:faint, "- ", :reset, :bright, v.title, :reset, " | ", :faint, Kernel.inspect(v.id), "\n"] end)
+      ~> print_ansi()
     end
   end
 
@@ -167,20 +204,20 @@ defmodule IntentionCli do
 
   def parse_json_body(response) do
     response
-    |> Map.fetch!(:body)
-    |> Jason.decode!(%{keys: :atoms})
+    |> Map.fetch(:body)
+    ~>> Jason.decode(%{keys: :atoms})
   end
 
   def request_device_code() do
     body = form_encoded_body(
       [{"client_id", "iObILO32qS2c7CxAn7dcUp4eZtDm9jjj"},
        {"audience", "https://intention-api.herokuapp.com"}])
-    HTTPoison.post!(
+    HTTPoison.post(
       "https://dwmartin41.eu.auth0.com/oauth/device/code",
       body,
       %{"Content-type": "application/x-www-form-urlencoded"}
     )
-    |> parse_json_body()
+    ~>> parse_json_body()
   end
 
   def request_token(device_code) do
@@ -188,40 +225,43 @@ defmodule IntentionCli do
             {"device_code", device_code},
             {"client_id", "iObILO32qS2c7CxAn7dcUp4eZtDm9jjj"}]
             |> form_encoded_body()
-    HTTPoison.post!(
+    HTTPoison.post(
       "https://dwmartin41.eu.auth0.com/oauth/token",
       body,
       %{"Content-type": "application/x-www-form-urlencoded"}
     )
-    |> parse_json_body()
+    ~>> parse_json_body()
   end
 
   def poll_token(device_code) do
     case request_token(device_code) do
-      %{access_token: token} -> token
-      _ -> poll_token(device_code)
+      {:ok, %{access_token: token}} -> return token
+      {:ok, _} -> poll_token(device_code)
+      {:error, _} = err -> err 
     end
   end
 
   def request_intentions(token) do
-    request = HTTPoison.get!(
+    request = HTTPoison.get(
       "https://intention-api.herokuapp.com/intentions",
       %{Authorization: "Bearer #{token}"}
     )
     case request do
-      %{status_code: 401} = r -> {:unauthorized, r}
-      r -> {:ok, parse_json_body(r)}
+      {:ok, %{status_code: 401}} = r -> {:error, :unauthorized}
+      {:ok, r} -> parse_json_body(r)
+      {:error, _} = err -> err
     end
   end
 
   def request_views(token) do
-    request = HTTPoison.get!(
+    request = HTTPoison.get(
       "https://intention-api.herokuapp.com/views",
       %{Authorization: "Bearer #{token}"}
     )
     case request do
-      %{status_code: 401} = r -> {:unauthorized, r}
-      r -> {:ok, parse_json_body(r)}
+      {:ok, %{status_code: 401}} = r -> {:error, :unauthorized}
+      {:ok, r} -> parse_json_body(r)
+      {:error, _} = err -> err
     end
   end
 
@@ -249,11 +289,5 @@ defmodule IntentionCli do
       |> Enum.filter(fn s -> not(is_nil(s)) end)
       |> Enum.intersperse(["\n"])
     end)
-  end
-
-  def unauthorized_error() do
-    [:bright, :red, "ERROR: ", :reset, "auth token expired, please refresh using ", :bright, "intention login"]
-    |> IO.ANSI.format()
-    |> IO.puts()
   end
 end
