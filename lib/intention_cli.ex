@@ -1,9 +1,12 @@
-defmodule IntentionCli do
+defmodule IntentionCLI do
   require OK
   use OK.Pipe
+  import IntentionCLI.Utils
+  alias IntentionCLI.Auth, as: Auth
+  alias IntentionCLI.API, as: API
 
   @moduledoc """
-  Documentation for `IntentionCli`.
+  Documentation for `IntentionCLI`.
   """
 
   @doc """
@@ -68,8 +71,8 @@ defmodule IntentionCli do
     case args do
       %{args: %{}} -> Optimus.parse!(optimus, ["--help"])
       {[:login], args} -> settings |> with_default(%{}) |> auth(args)
-      {[:list], args} -> settings ~>> token_required() ~> list_intentions(args) |> handle_errors()
-      {[:views], args} -> settings ~>> token_required() ~> list_views(args) |> handle_errors()
+      {[:list], args} -> settings ~>> token_required() ~>> list_intentions(args) |> handle_errors()
+      {[:views], args} -> settings ~>> token_required() ~>> list_views(args) |> handle_errors()
       other -> IO.inspect(other)
     end
   end
@@ -122,24 +125,9 @@ defmodule IntentionCli do
     end
   end
 
-  def return(x) do
-    {:ok, x}
-  end
-
-  def with_default(x, default) do
-    case x do
-      {:ok, ok} -> ok
-      {:error, _} -> default
-    end
-  end
-
-  def print_ansi(to_print) do
-    to_print |> IO.ANSI.format() |> IO.puts()
-  end
-
-  def auth(settings, args) do
+  def auth(settings, _args) do
     OK.for do
-      %{user_code: user_code, device_code: device_code, verification_uri_complete: uri} <- request_device_code()
+      %{user_code: user_code, device_code: device_code, verification_uri_complete: uri} <- Auth.request_device_code()
 
       print_ansi(["Go to: ", :bright, uri])
       print_ansi(["User code is ", :blue, :bright, user_code])
@@ -148,7 +136,7 @@ defmodule IntentionCli do
         [frames: :dots,
          text: "Waiting for token...",
          done: "Got token"],
-        fn -> poll_token(device_code) end
+        fn -> Auth.poll_token(device_code) end
       )
 
       save_settings(Map.put(settings, :token, token))
@@ -159,11 +147,11 @@ defmodule IntentionCli do
 
   def list_intentions(%{token: token}, args) do
     OK.for do
-      intentions_task = Task.async(fn -> request_intentions(token) end)
+      intentions_task = Task.async(fn -> API.request_intentions(token) end)
       view_root_id_task = Task.async(fn ->
         case args do
           %{args: %{view: view_id}} when not(is_nil(view_id)) ->
-            view = request_views(token) ~> Enum.find(fn v -> v.id == view_id end)
+            view = API.request_views(token) ~> Enum.find(fn v -> v.id == view_id end)
             case view do
               {:ok, nil} ->
                 IO.puts(IO.ANSI.format([:yellow, :bright, "WARN: ", :reset, "View ", :bright, Kernel.inspect(view_id), :reset, " not found."]))
@@ -189,83 +177,10 @@ defmodule IntentionCli do
     end
   end
 
-  def list_views(settings, args) do
-    OK.for do
-      views <- request_views(settings.token)
-    after
-      request_views(settings.token)
-      ~> Enum.map(fn v -> [:faint, "- ", :reset, :bright, v.title, :reset, " | ", :faint, Kernel.inspect(v.id), "\n"] end)
-      ~> print_ansi()
-    end
-  end
-
-  def form_encoded_body(params) do
-    params
-    |> Enum.map(fn {key, value} -> key <> "=" <> value end)
-    |> Enum.join("&")
-  end
-
-  def parse_json_body(response) do
-    response
-    |> Map.fetch(:body)
-    ~>> Jason.decode(%{keys: :atoms})
-  end
-
-  def request_device_code() do
-    body = form_encoded_body(
-      [{"client_id", "iObILO32qS2c7CxAn7dcUp4eZtDm9jjj"},
-       {"audience", "https://intention-api.herokuapp.com"}])
-    HTTPoison.post(
-      "https://dwmartin41.eu.auth0.com/oauth/device/code",
-      body,
-      %{"Content-type": "application/x-www-form-urlencoded"}
-    )
-    ~>> parse_json_body()
-  end
-
-  def request_token(device_code) do
-    body = [{"grant_type", "urn:ietf:params:oauth:grant-type:device_code"},
-            {"device_code", device_code},
-            {"client_id", "iObILO32qS2c7CxAn7dcUp4eZtDm9jjj"}]
-            |> form_encoded_body()
-    HTTPoison.post(
-      "https://dwmartin41.eu.auth0.com/oauth/token",
-      body,
-      %{"Content-type": "application/x-www-form-urlencoded"}
-    )
-    ~>> parse_json_body()
-  end
-
-  def poll_token(device_code) do
-    case request_token(device_code) do
-      {:ok, %{access_token: token}} -> return token
-      {:ok, _} -> poll_token(device_code)
-      {:error, _} = err -> err 
-    end
-  end
-
-  def request_intentions(token) do
-    request = HTTPoison.get(
-      "https://intention-api.herokuapp.com/intentions",
-      %{Authorization: "Bearer #{token}"}
-    )
-    case request do
-      {:ok, %{status_code: 401}} = r -> {:error, :unauthorized}
-      {:ok, r} -> parse_json_body(r)
-      {:error, _} = err -> err
-    end
-  end
-
-  def request_views(token) do
-    request = HTTPoison.get(
-      "https://intention-api.herokuapp.com/views",
-      %{Authorization: "Bearer #{token}"}
-    )
-    case request do
-      {:ok, %{status_code: 401}} = r -> {:error, :unauthorized}
-      {:ok, r} -> parse_json_body(r)
-      {:error, _} = err -> err
-    end
+  def list_views(settings, _args) do
+    API.request_views(settings.token)
+    ~> Enum.map(fn v -> [:faint, "- ", :reset, :bright, v.title, :reset, " | ", :faint, Kernel.inspect(v.id), "\n"] end)
+    ~> print_ansi()
   end
 
   def intentions_view(intentions, root_node_id \\ nil, parent \\ nil, indentation \\ 1) do
