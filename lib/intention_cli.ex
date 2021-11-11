@@ -159,23 +159,26 @@ defmodule IntentionCli do
 
   def list_intentions(%{token: token}, args) do
     OK.for do
-      intentions <- request_intentions(token)
-      view_root_id = case args do
-                       %{args: %{view: view_id}} when not(is_nil(view_id)) ->
-                         view = request_views(token) ~> Enum.find(fn v -> v.id == view_id end)
-
-                         case view do
-                           {:ok, nil} ->
-                             IO.puts(IO.ANSI.format([:yellow, :bright, "WARN: ", :reset, "View ", :bright, Kernel.inspect(view_id), :reset, " not found."]))
-                             nil
-                           {:ok, v} ->
-                             v
-                             |> Map.fetch!(:"root-node")
-                             |> Map.fetch!(:id)
-                           _ -> nil
-                         end
-                       _ -> nil
-                     end
+      intentions_task = Task.async(fn -> request_intentions(token) end)
+      view_root_id_task = Task.async(fn ->
+        case args do
+          %{args: %{view: view_id}} when not(is_nil(view_id)) ->
+            view = request_views(token) ~> Enum.find(fn v -> v.id == view_id end)
+            case view do
+              {:ok, nil} ->
+                IO.puts(IO.ANSI.format([:yellow, :bright, "WARN: ", :reset, "View ", :bright, Kernel.inspect(view_id), :reset, " not found."]))
+                nil
+              {:ok, v} ->
+                v
+                |> Map.fetch!(:"root-node")
+                |> Map.fetch!(:id)
+              _ -> nil
+            end
+          _ -> nil
+        end
+      end)
+      [intentions_result, view_root_id] = Task.await_many([intentions_task, view_root_id_task])
+      intentions <- intentions_result
       to_show = case args.flags.all do
                   true -> intentions
                   false -> intentions |> Enum.filter(fn i -> i.status == "todo" end)
