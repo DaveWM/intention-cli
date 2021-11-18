@@ -185,7 +185,7 @@ defmodule IntentionCLI do
 
   def intentions_view(intentions, root_node_id \\ nil, parent \\ nil, indentation \\ 1) do
     level_colours = Stream.cycle([
-      :blue, :cyan, :green, :red, :yellow
+      :yellow, :light_blue, :red, :light_green, :magenta
     ])
 
     intentions
@@ -201,7 +201,7 @@ defmodule IntentionCLI do
     |> Enum.map(fn i ->
       indent = String.duplicate(" ", indentation)
       children = intentions_view(intentions, root_node_id, i.id, indentation + 1)
-      |> Enum.map(fn s -> [indent, Enum.fetch!(level_colours, indentation), "| ", s] end)
+      |> Enum.map(fn s -> [indent, Enum.fetch!(level_colours, indentation), :bright, "| ", s] end)
       label = [:reset, (if i.status == "todo", do: :bright, else: :crossed_out), i.title, :reset, :faint, " (id ", to_string(i.id), ")"]
       [ label, children ]
       |> Enum.filter(fn s -> not(is_nil(s)) end)
