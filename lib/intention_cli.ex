@@ -57,6 +57,40 @@ defmodule IntentionCLI do
             ]
           ]
         ],
+        create: [
+          name: "create",
+          about: "create a new intention",
+          options: [
+            title: [
+              value_name: "title",
+              short: "-t",
+              long: "--title",
+              help: "The title of your intention",
+              required: true
+            ],
+            description: [
+              value_name: "description",
+              short: "-d",
+              long: "--desc",
+              help: "The description of your intention",
+              required: false
+            ],
+            parents: [
+              value_name: "parents",
+              short: "-p",
+              long: "--parent",
+              help: "The parent of your intention. Can specify multiple parents.",
+              required: true,
+              multiple: true,
+              parser: fn(s) ->
+                case Integer.parse(s) do
+                  {:error, _} -> {:error, "invalid parent id - should be an integer"}
+                  {i, _} -> {:ok, i}
+                end
+              end,
+            ]
+          ]
+        ],
         views: [
           name: "views",
           about: "List all views"
@@ -73,6 +107,7 @@ defmodule IntentionCLI do
       {[:login], args} -> settings |> with_default(%{}) |> auth(args)
       {[:list], args} -> settings ~>> token_required() ~>> list_intentions(args) |> handle_errors()
       {[:views], args} -> settings ~>> token_required() ~>> list_views(args) |> handle_errors()
+      {[:create], args} -> settings ~>> token_required() ~>> create_intention(args) |> handle_errors()
       other -> IO.inspect(other)
     end
   end
@@ -174,6 +209,17 @@ defmodule IntentionCLI do
       view = intentions_view(to_show, view_root_id)
     after
       print_ansi(view)
+    end
+  end
+
+  def create_intention(%{token: token}, %{options: %{title: t, description: d, parents: ps}}) do
+    OK.for do
+      intention = %{title: t, description: d, parents: ps}
+      |> Enum.filter(fn {_k, v} -> not(is_nil(v)) end)
+      |> Map.new()
+      response <- API.create_intention(token, intention)
+    after
+      print_ansi(["Success! Created intention with id ", :bright, Kernel.inspect(response.id)])
     end
   end
 

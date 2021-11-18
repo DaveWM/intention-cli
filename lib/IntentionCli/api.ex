@@ -5,7 +5,13 @@ defmodule IntentionCLI.API do
   def handle_response(res) do
     case res do
       {:ok, %{status_code: 401}} -> {:error, :unauthorized}
-      {:ok, _} = r -> r ~>> parse_json_body()
+      {:ok, %{status_code: 200}} = r  -> r ~>> parse_json_body()
+      {:ok, res} -> OK.for do
+          body <- res |> parse_json_body()
+          reason <- body |> Map.fetch(:reason)
+        after
+          {:error, reason}
+        end
       {:error, _} = err -> err
     end
   end
@@ -24,5 +30,19 @@ defmodule IntentionCLI.API do
       %{Authorization: "Bearer #{token}"}
     )
     |> handle_response()
+  end
+
+  def create_intention(token, intention) do
+    OK.for do
+      json <- Jason.encode(intention)
+    after
+      HTTPoison.post(
+        "https://intention-api.herokuapp.com/intentions",
+        json,
+        %{Authorization: "Bearer #{token}",
+          "Content-Type": "application/json"}
+      )
+      |> handle_response()
+    end
   end
 end
