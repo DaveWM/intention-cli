@@ -57,6 +57,23 @@ defmodule IntentionCLI do
             ]
           ]
         ],
+        show: [
+          name: "show",
+          about: "show a single intention",
+          args: [
+            id: [
+              value_name: "id",
+              help: "The ID of the intention to display",
+              parser: fn(s) ->
+                case Integer.parse(s) do
+                  {:error, _} -> {:error, "invalid intention id - should be an integer"}
+                  {i, _} -> {:ok, i}
+                end
+              end,
+              required: true
+            ]
+          ]
+        ],
         create: [
           name: "create",
           about: "create a new intention",
@@ -108,6 +125,7 @@ defmodule IntentionCLI do
       {[:list], args} -> settings ~>> token_required() ~>> list_intentions(args) |> handle_errors()
       {[:views], args} -> settings ~>> token_required() ~>> list_views(args) |> handle_errors()
       {[:create], args} -> settings ~>> token_required() ~>> create_intention(args) |> handle_errors()
+      {[:show], args} -> settings ~>> token_required() ~>> show_intention(args) |> handle_errors()
       other -> IO.inspect(other)
     end
   end
@@ -209,6 +227,24 @@ defmodule IntentionCLI do
       view = intentions_view(to_show, view_root_id)
     after
       print_ansi(view)
+    end
+  end
+
+  def show_intention(%{token: token}, args) do
+    OK.for do
+      intention <- API.get_intention(token, args.args.id)
+    after
+      [[:faint, "Title:       ", :reset, :bright, intention.title],
+       (if Map.has_key?(intention, :description) do [:faint, "Description: ", :reset, intention.description] end),
+       [:faint, "Status:      ", :reset, :bright, if intention.status == "todo" do
+         [:cyan, "ToDo"]
+       else
+        [:green, "Done"]
+       end]
+      ]
+      |> Enum.filter(fn x -> not(is_nil(x)) end)
+      |> Enum.intersperse(["\r\n", :reset])
+      |> print_ansi()
     end
   end
 
