@@ -108,6 +108,40 @@ defmodule IntentionCLI do
             ]
           ]
         ],
+        complete: [
+          name: "complete",
+          about: "set the intention status to completed",
+          args: [
+            id: [
+              value_name: "id",
+              help: "The ID of the intention to update",
+              parser: fn(s) ->
+                case Integer.parse(s) do
+                  {:error, _} -> {:error, "invalid intention id - should be an integer"}
+                  {i, _} -> {:ok, i}
+                end
+              end,
+              required: true
+            ]
+          ]
+        ],
+        uncomplete: [
+          name: "uncomplete",
+          about: "set the intention status to todo",
+          args: [
+            id: [
+              value_name: "id",
+              help: "The ID of the intention to update",
+              parser: fn(s) ->
+                case Integer.parse(s) do
+                  {:error, _} -> {:error, "invalid intention id - should be an integer"}
+                  {i, _} -> {:ok, i}
+                end
+              end,
+              required: true
+            ]
+          ]
+        ],
         views: [
           name: "views",
           about: "List all views"
@@ -126,6 +160,8 @@ defmodule IntentionCLI do
       {[:views], args} -> settings ~>> token_required() ~>> list_views(args) |> handle_errors()
       {[:create], args} -> settings ~>> token_required() ~>> create_intention(args) |> handle_errors()
       {[:show], args} -> settings ~>> token_required() ~>> show_intention(args) |> handle_errors()
+      {[:complete], args} -> settings ~>> token_required() ~>> set_intention_status(args, "done") |> handle_errors()
+      {[:uncomplete], args} -> settings ~>> token_required() ~>> set_intention_status(args, "todo") |> handle_errors()
       other -> IO.inspect(other)
     end
   end
@@ -256,6 +292,16 @@ defmodule IntentionCLI do
       response <- API.create_intention(token, intention)
     after
       print_ansi(["Success! Created intention with id ", :bright, Kernel.inspect(response.id)])
+    end
+  end
+
+  def set_intention_status(%{token: token}, %{args: %{id: id}}, status) do
+    OK.for do
+      intention <- API.get_intention(token, id)
+      updated_intention = %{ intention | status: status } |> Map.update(:parents, [], fn ps -> Enum.map(ps, fn p -> p.id end) end)
+      _response <- API.update_intention(token, id, updated_intention)
+    after
+      IO.puts("Success!")
     end
   end
 

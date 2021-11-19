@@ -11,6 +11,7 @@ defmodule IntentionCLI.API do
           reason <- case Map.fetch(body, :reason) do
                       {:ok, _} = ok -> ok
                       :error ->
+                        IO.inspect(res)
                         {:error, :unknown_error}
                     end
         after
@@ -42,6 +43,20 @@ defmodule IntentionCLI.API do
     after
       HTTPoison.post(
         "https://intention-api.herokuapp.com/intentions",
+        json,
+        %{Authorization: "Bearer #{token}",
+          "Content-Type": "application/json"}
+      )
+      |> handle_response()
+    end
+  end
+
+  def update_intention(token, id, updated_intention) do
+    OK.for do
+      json <- Jason.encode(updated_intention)
+    after
+      HTTPoison.put(
+        "https://intention-api.herokuapp.com/intentions/#{id}",
         json,
         %{Authorization: "Bearer #{token}",
           "Content-Type": "application/json"}
