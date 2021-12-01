@@ -4,9 +4,9 @@ defmodule IntentionCLI.API do
 
   def handle_response(res) do
     case res do
-      {:ok, %{status_code: 401}} -> {:error, :unauthorized}
-      {:ok, %{status_code: 200}} = r  -> r ~>> parse_json_body()
-      {:ok, res} -> OK.for do
+      %{status_code: 401} -> {:error, :unauthorized}
+      %{status_code: 200} = r  -> parse_json_body(r)
+      res -> OK.for do
           body <- res |> parse_json_body()
           reason <- case Map.fetch(body, :reason) do
                       {:ok, _} = ok -> ok
@@ -17,22 +17,26 @@ defmodule IntentionCLI.API do
         after
           {:error, reason}
         end
-      {:error, _} = err -> err
     end
   end
 
+  def headers(token) do
+    ["Authorization": "Bearer #{token}",
+     "Content-Type": "application/json"]
+  end
+
   def request_intentions(token) do
-    HTTPoison.get(
+    HTTPotion.get(
       "https://intention-api.herokuapp.com/intentions",
-      %{Authorization: "Bearer #{token}"}
+      [headers: headers(token)]
     )
     |> handle_response()
   end
 
   def request_views(token) do
-    HTTPoison.get(
+    HTTPotion.get(
       "https://intention-api.herokuapp.com/views",
-      %{Authorization: "Bearer #{token}"}
+      [headers: headers(token)]
     )
     |> handle_response()
   end
@@ -41,11 +45,10 @@ defmodule IntentionCLI.API do
     OK.for do
       json <- Jason.encode(intention)
     after
-      HTTPoison.post(
+      HTTPotion.post(
         "https://intention-api.herokuapp.com/intentions",
-        json,
-        %{Authorization: "Bearer #{token}",
-          "Content-Type": "application/json"}
+        [body: json,
+         headers: headers(token)]
       )
       |> handle_response()
     end
@@ -55,21 +58,19 @@ defmodule IntentionCLI.API do
     OK.for do
       json <- Jason.encode(updated_intention)
     after
-      HTTPoison.put(
+      HTTPotion.put(
         "https://intention-api.herokuapp.com/intentions/#{id}",
-        json,
-        %{Authorization: "Bearer #{token}",
-          "Content-Type": "application/json"}
+        [body: json,
+         headers: headers(token)]
       )
       |> handle_response()
     end
   end
 
   def get_intention(token, id) do
-    HTTPoison.get(
+    HTTPotion.get(
       "https://intention-api.herokuapp.com/intentions/#{id}",
-      %{Authorization: "Bearer #{token}",
-        "Content-Type": "application/json"}
+      [headers: headers(token)]
     )
     |> handle_response()
   end
