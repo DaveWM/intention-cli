@@ -4,16 +4,25 @@ defmodule IntentionCLI.API do
 
   def handle_response(res) do
     case res do
-      %{status_code: 401} -> {:error, :unauthorized}
-      %{status_code: 200} = r  -> parse_json_body(r)
-      res -> OK.for do
+      %{status_code: 401} ->
+        {:error, :unauthorized}
+
+      %{status_code: 200} = r ->
+        parse_json_body(r)
+
+      res ->
+        OK.for do
           body <- res |> parse_json_body()
-          reason <- case Map.fetch(body, :reason) do
-                      {:ok, _} = ok -> ok
-                      :error ->
-                        IO.inspect(res)
-                        {:error, :unknown_error}
-                    end
+
+          reason <-
+            case Map.fetch(body, :reason) do
+              {:ok, _} = ok ->
+                ok
+
+              :error ->
+                IO.inspect(res)
+                {:error, :unknown_error}
+            end
         after
           {:error, reason}
         end
@@ -21,14 +30,14 @@ defmodule IntentionCLI.API do
   end
 
   def headers(token) do
-    ["Authorization": "Bearer #{token}",
-     "Content-Type": "application/json"]
+    [Authorization: "Bearer #{token}", "Content-Type": "application/json"]
   end
 
   def request_intentions(token) do
     HTTPotion.get(
       "https://intention-api.herokuapp.com/intentions",
-      [headers: headers(token)]
+      headers: headers(token),
+      ibrowse: [ssl_options: [{:verify, :verify_none}]]
     )
     |> handle_response()
   end
@@ -36,7 +45,8 @@ defmodule IntentionCLI.API do
   def request_views(token) do
     HTTPotion.get(
       "https://intention-api.herokuapp.com/views",
-      [headers: headers(token)]
+      headers: headers(token),
+      ibrowse: [ssl_options: [{:verify, :verify_none}]]
     )
     |> handle_response()
   end
@@ -47,8 +57,9 @@ defmodule IntentionCLI.API do
     after
       HTTPotion.post(
         "https://intention-api.herokuapp.com/intentions",
-        [body: json,
-         headers: headers(token)]
+        body: json,
+        headers: headers(token),
+        ibrowse: [ssl_options: [{:verify, :verify_none}]]
       )
       |> handle_response()
     end
@@ -60,8 +71,9 @@ defmodule IntentionCLI.API do
     after
       HTTPotion.put(
         "https://intention-api.herokuapp.com/intentions/#{id}",
-        [body: json,
-         headers: headers(token)]
+        body: json,
+        headers: headers(token),
+        ibrowse: [ssl_options: [{:verify, :verify_none}]]
       )
       |> handle_response()
     end
@@ -70,7 +82,8 @@ defmodule IntentionCLI.API do
   def get_intention(token, id) do
     HTTPotion.get(
       "https://intention-api.herokuapp.com/intentions/#{id}",
-      [headers: headers(token)]
+      headers: headers(token),
+      ibrowse: [ssl_options: [{:verify, :verify_none}]]
     )
     |> handle_response()
   end

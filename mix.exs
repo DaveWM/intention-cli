@@ -27,8 +27,9 @@ defmodule IntentionCli.MixProject do
       {:cli_spinners, "~> 0.1.0"},
       {:castore, "~> 0.1.0"},
       {:jason, "~> 1.2"},
-      {:httpotion, "~> 3.1.3"},
-      {:ok, "~> 2.3"}
+      {:httpotion, "3.1.3"},
+      {:ok, "~> 2.3"},
+      {:certifi, "~> 2.9"}
     ]
   end
 end
