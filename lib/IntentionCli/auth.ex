@@ -2,10 +2,12 @@ defmodule IntentionCLI.Auth do
   use OK.Pipe
   import IntentionCLI.Utils
 
+  @client_id "iObILO32qS2c7CxAn7dcUp4eZtDm9jjj"
+
   def request_device_code() do
     body =
       form_encoded_body([
-        {"client_id", "iObILO32qS2c7CxAn7dcUp4eZtDm9jjj"},
+        {"client_id", @client_id},
         {"audience", "https://intention-api.herokuapp.com"}
       ])
 
@@ -23,7 +25,7 @@ defmodule IntentionCLI.Auth do
       [
         {"grant_type", "urn:ietf:params:oauth:grant-type:device_code"},
         {"device_code", device_code},
-        {"client_id", "iObILO32qS2c7CxAn7dcUp4eZtDm9jjj"}
+        {"client_id", @client_id}
       ]
       |> form_encoded_body()
 

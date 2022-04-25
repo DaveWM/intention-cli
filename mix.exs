@@ -8,7 +8,7 @@ defmodule IntentionCli.MixProject do
       elixir: "~> 1.11",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      escript: [main_module: IntentionCLI, name: "intention"],
+      escript: [main_module: IntentionCLI, name: "intention"]
     ]
   end
 
