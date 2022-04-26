@@ -1,21 +1,11 @@
-# IntentionCli
+# Intention CLI
 
-**TODO: Add description**
+A CLI for [Intention](https://about.i.ntention.app/).
 
-## Installation
+## Building
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `intention_cli` to your list of dependencies in `mix.exs`:
-
-```elixir
-def deps do
-  [
-    {:intention_cli, "~> 0.1.0"}
-  ]
-end
-```
-
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at [https://hexdocs.pm/intention_cli](https://hexdocs.pm/intention_cli).
+* Install [Elixir](https://elixir-lang.org/install.html) (including Mix)
+* Run `mix deps.get`
+* Run `mix escript.build`
+* You should see an executable file in the project root, which can be run with `./intention`
 
